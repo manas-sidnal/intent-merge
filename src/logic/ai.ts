@@ -1,12 +1,27 @@
 import { ConflictBlock, ConflictType, ResolutionResult } from "../types"
 import Groq from "groq-sdk"
 import * as dotenv from "dotenv"
+import * as path from "path"
+import * as vscode from "vscode"
 
-dotenv.config()
+// __dirname inside dist/ → go up two levels to reach the extension root where .env lives
+dotenv.config({ path: path.resolve(__dirname, "../.env") })
 
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
-})
+function getGroqClient() {
+  // Priority: process.env (from .env) → VS Code setting
+  const apiKey =
+    process.env.GROQ_API_KEY ||
+    vscode.workspace.getConfiguration("intent-merge").get<string>("groqApiKey") ||
+    ""
+
+  if (!apiKey) {
+    throw new Error(
+      "GROQ_API_KEY not found. Add it to your .env file or set intent-merge.groqApiKey in VS Code settings."
+    )
+  }
+
+  return new Groq({ apiKey })
+}
 
 export async function resolveConflict(
   block: ConflictBlock,
@@ -39,6 +54,7 @@ Respond ONLY in JSON:
 `
 
   try {
+    const groq = getGroqClient()
     const response = await groq.chat.completions.create({
       model: "llama-3.1-8b-instant", // fast + strong
       messages: [
@@ -62,18 +78,19 @@ Respond ONLY in JSON:
     return {
       mergedCode: parsed.mergedCode || "",
       explanation: parsed.explanation || "No explanation provided",
-      confidence: parsed.confidence || 0.5,
+      confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0.5,
       type
     }
 
   } catch (err) {
-  console.error("❌ GROQ ERROR:", err)
+    const message = err instanceof Error ? err.message : String(err)
+    console.error("❌ GROQ ERROR:", message)
 
-  return {
-    mergedCode: block.incoming,
-    explanation: "Fallback: defaulted to incoming version due to AI error",
-    confidence: 0.4,
-    type
+    return {
+      mergedCode: block.incoming,
+      explanation: `AI error: ${message}`,
+      confidence: 0.0,
+      type
+    }
   }
-}
 }

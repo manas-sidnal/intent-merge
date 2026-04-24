@@ -18,6 +18,8 @@ export async function processFile(content: string) {
     results.push({
       ...resolution,
       issues,
+      _current: block.current,
+      _incoming: block.incoming,
     })
   }
 
