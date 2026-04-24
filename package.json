@@ -23,7 +23,17 @@
         "command": "intent-merge.resolve",
         "title": "Resolve Merge Conflict with AI"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Intent Merge",
+      "properties": {
+        "intentMerge.orgId": {
+          "type": "string",
+          "default": "",
+          "description": "Your organization ID from the Intent Merge dashboard"
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
@@ -53,6 +63,7 @@
     "typescript-eslint": "^8.56.1"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.104.1",
     "dotenv": "^17.4.2",
     "groq-sdk": "^1.1.2"
   }

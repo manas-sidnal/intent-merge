@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { showPanel } from './ui/panel';
 import { ConflictCodeLensProvider } from './ui/codeLens';
 import { processFile } from './logic/orchestrator';
+import { reportConflict } from './supabase';
+import { execSync } from 'child_process';
 
 // Regex that handles both CRLF and LF
 const conflictRegex = () =>
@@ -82,7 +84,20 @@ export function activate(context: vscode.ExtensionContext) {
 
 				onApplyMerge: async (mergedCode, conflictIndex) => {
 					const ok = await applyMergeToDocument(editor, mergedCode, conflictIndex);
-					if (ok) { vscode.window.showInformationMessage("✅ Merge applied!"); }
+					if (ok) {
+						vscode.window.showInformationMessage("✅ Merge applied!");
+						const orgId = vscode.workspace.getConfiguration('intentMerge').get<string>('orgId');
+						if (orgId) {
+							const gitInfo = await getGitInfo();
+							const relativePath = vscode.workspace.asRelativePath(editor.document.uri);
+							reportConflict(
+								gitInfo.author ?? 'unknown',
+								gitInfo.commitHash ?? 'unknown',
+								relativePath,
+								orgId
+							);
+						}
+					}
 				},
 
 				onUndoMerge: async (_conflictIndex) => {
@@ -99,6 +114,19 @@ export function activate(context: vscode.ExtensionContext) {
 				onRaisePR: async (mergedCode, conflictIndex) => {
 					const ok = await applyMergeToDocument(editor, mergedCode, conflictIndex);
 					if (!ok) { return; }
+
+					// Report conflict to Supabase
+					const orgId = vscode.workspace.getConfiguration('intentMerge').get<string>('orgId');
+					if (orgId) {
+						const gitInfoForReport = await getGitInfo();
+						const relativePath = vscode.workspace.asRelativePath(editor.document.uri);
+						reportConflict(
+							gitInfoForReport.author ?? 'unknown',
+							gitInfoForReport.commitHash ?? 'unknown',
+							relativePath,
+							orgId
+						);
+					}
 
 					// Open the repo's compare page with the current branch pre-selected
 					const gitInfo = await getGitInfo();
@@ -149,6 +177,8 @@ export function activate(context: vscode.ExtensionContext) {
 interface GitInfo {
 	remoteUrl: string | undefined;
 	currentBranch: string | undefined;
+	commitHash: string | undefined;
+	author: string | undefined;
 }
 
 async function getGitInfo(): Promise<GitInfo> {
@@ -156,12 +186,22 @@ async function getGitInfo(): Promise<GitInfo> {
 		const gitExtension = vscode.extensions.getExtension('vscode.git')?.exports;
 		const api = gitExtension?.getAPI(1);
 		const repo = api?.repositories?.[0];
+
+		let author: string | undefined;
+		try {
+			author = execSync('git config user.name', { encoding: 'utf-8' }).trim() || undefined;
+		} catch {
+			author = undefined;
+		}
+
 		return {
 			remoteUrl: repo?.state?.remotes?.[0]?.fetchUrl,
 			currentBranch: repo?.state?.HEAD?.name,
+			commitHash: repo?.state?.HEAD?.commit,
+			author,
 		};
 	} catch {
-		return { remoteUrl: undefined, currentBranch: undefined };
+		return { remoteUrl: undefined, currentBranch: undefined, commitHash: undefined, author: undefined };
 	}
 }
 
