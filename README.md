@@ -9,4 +9,4 @@ AI-powered VS Code Extension to understand and resolve Git merge conflicts.
 ## Tech Stack
 - VS Code Extension API
 - Node.js
-- Gemini API
+- Groq API
