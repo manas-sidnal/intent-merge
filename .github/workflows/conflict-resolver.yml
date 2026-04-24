@@ -1,0 +1,58 @@
+name: "\U0001F916 AI Conflict Resolver — Intent Merge"
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  resolve-conflicts:
+    name: Auto-Resolve Merge Conflicts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.head_ref }}
+
+      - name: Configure git
+        run: |
+          git config user.email "intent-merge-bot@noreply.github.com"
+          git config user.name "Intent Merge Bot"
+          git fetch origin ${{ github.base_ref }}
+
+      - name: Check for merge conflicts
+        id: check_conflicts
+        run: |
+          if git merge origin/${{ github.base_ref }} --no-commit --no-ff 2>/dev/null; then
+            echo "has_conflicts=false" >> $GITHUB_OUTPUT
+            git merge --abort 2>/dev/null || true
+          else
+            echo "has_conflicts=true" >> $GITHUB_OUTPUT
+            # Do NOT abort yet — leave conflict markers in files for the next step
+          fi
+
+      - name: Extract conflicts and resolve with AI
+        if: steps.check_conflicts.outputs.has_conflicts == 'true'
+        env:
+          GROQ_API_KEY:      ${{ secrets.GROQ_API_KEY }}
+          GITHUB_TOKEN:      ${{ secrets.GITHUB_TOKEN }}
+          SUPABASE_URL:      ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          ORG_ID:            ${{ secrets.ORG_ID }}
+          PR_NUMBER:         ${{ github.event.pull_request.number }}
+          BASE_REF:          ${{ github.base_ref }}
+          HEAD_REF:          ${{ github.head_ref }}
+          HEAD_SHA:          ${{ github.event.pull_request.head.sha }}
+          PR_AUTHOR:         ${{ github.event.pull_request.user.login }}
+          REPO_OWNER:        ${{ github.repository_owner }}
+          REPO_NAME:         ${{ github.event.repository.name }}
+        run: node .github/scripts/conflict-resolver.js
+
+      - name: Abort merge after analysis
+        if: always() && steps.check_conflicts.outputs.has_conflicts == 'true'
+        run: git merge --abort 2>/dev/null || true

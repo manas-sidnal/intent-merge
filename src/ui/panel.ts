@@ -158,6 +158,26 @@ function getHtml(): string {
     /* Warnings */
     .warning-item { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--amber); background: var(--amber-dim); border: 1px solid rgba(245,166,35,0.25); border-radius: var(--radius-sm); padding: 7px 10px; }
 
+    /* ── Decision Layer ── */
+    .decision-layer { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .decision-layer.risk-low    { background: linear-gradient(90deg, rgba(61,214,140,0.08) 0%, transparent 100%); border-left: 3px solid var(--green); }
+    .decision-layer.risk-medium { background: linear-gradient(90deg, rgba(245,166,35,0.08) 0%, transparent 100%); border-left: 3px solid var(--amber); }
+    .decision-layer.risk-high   { background: linear-gradient(90deg, rgba(245,95,95,0.10) 0%, transparent 100%);  border-left: 3px solid var(--red); }
+    .decision-left { display: flex; flex-direction: column; gap: 4px; }
+    .decision-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+    .decision-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); }
+    .decision-action { font-size: 13px; font-weight: 600; color: var(--text-bright); }
+    .risk-badge { font-size: 10px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; padding: 4px 10px; border-radius: 20px; }
+    .risk-badge.risk-low    { background: var(--green-dim); color: var(--green); border: 1px solid rgba(61,214,140,0.3); }
+    .risk-badge.risk-medium { background: var(--amber-dim); color: var(--amber); border: 1px solid rgba(245,166,35,0.3); }
+    .risk-badge.risk-high   { background: rgba(245,95,95,0.12); color: var(--red); border: 1px solid rgba(245,95,95,0.35); }
+    .decision-confidence { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+    .decision-conf-label { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.8px; font-weight: 600; }
+    .decision-conf-value { font-size: 16px; font-weight: 700; }
+    .decision-conf-value.high   { color: var(--green); }
+    .decision-conf-value.medium { color: var(--amber); }
+    .decision-conf-value.low    { color: var(--red); }
+
     /* Card footer — button area */
     .card-footer { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .footer-right { margin-left: auto; }
@@ -254,6 +274,20 @@ function getHtml(): string {
               <span class="confidence-label">Confidence</span>
               <div class="confidence-track"><div class="confidence-fill \${cls}" style="width:\${pct}%"></div></div>
               <span class="confidence-pct \${cls}">\${pct}%</span>
+            </div>
+          </div>
+
+          <div class="decision-layer risk-\${r._risk || 'medium'}">
+            <div class="decision-left">
+              <span class="decision-label">✦ Recommended Action</span>
+              <span class="decision-action">\${esc(r._recommendedAction || 'Review and apply')}</span>
+            </div>
+            <div class="decision-right">
+              <span class="risk-badge risk-\${r._risk || 'medium'}">\${(r._risk || 'medium').toUpperCase()} RISK</span>
+              <div class="decision-confidence">
+                <span class="decision-conf-label">AI Confidence</span>
+                <span class="decision-conf-value \${cls}">\${pct}%</span>
+              </div>
             </div>
           </div>
 

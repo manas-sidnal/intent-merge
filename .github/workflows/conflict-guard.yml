@@ -1,0 +1,165 @@
+name: "\U0001F6E1\uFE0F Conflict Guard — Intent Merge"
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  conflict-guard:
+    name: Detect Potential Conflicts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Scan for overlapping changes across open PRs
+        uses: actions/github-script@v7
+        env:
+          SUPABASE_URL:      ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          ORG_ID:            ${{ secrets.ORG_ID }}
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const { owner, repo } = context.repo;
+            const prAuthor = context.payload.pull_request.user.login;
+
+            // --- 1. Get files changed in THIS PR ---
+            const { data: currentFiles } = await github.rest.pulls.listFiles({
+              owner, repo, pull_number: prNumber, per_page: 100
+            });
+            const currentFilenames = new Set(currentFiles.map(f => f.filename));
+
+            if (currentFilenames.size === 0) return;
+
+            // --- 2. Get ALL open PRs (paginated) ---
+            let openPRs = [];
+            let page = 1;
+            while (true) {
+              const { data: page_prs } = await github.rest.pulls.list({
+                owner, repo, state: 'open', per_page: 100, page
+              });
+              openPRs = openPRs.concat(page_prs);
+              if (page_prs.length < 100) break;
+              page++;
+            }
+
+            // --- 3. Find file-level overlaps ---
+            const conflicts = [];
+            for (const pr of openPRs) {
+              if (pr.number === prNumber) continue; // skip self
+              if (pr.user.login === prAuthor) continue; // skip own PRs
+
+              const { data: prFiles } = await github.rest.pulls.listFiles({
+                owner, repo, pull_number: pr.number, per_page: 100
+              });
+
+              const overlapping = prFiles
+                .filter(f => currentFilenames.has(f.filename))
+                .map(f => f.filename);
+
+              if (overlapping.length > 0) {
+                conflicts.push({
+                  number: pr.number,
+                  title: pr.title,
+                  author: pr.user.login,
+                  url: pr.html_url,
+                  files: overlapping
+                });
+              }
+            }
+
+            // --- 4. Deduplicate: check if we already posted this warning ---
+            const { data: existingComments } = await github.rest.issues.listComments({
+              owner, repo, issue_number: prNumber, per_page: 50
+            });
+            const alreadyPosted = existingComments.some(c =>
+              c.body.includes('Intent Merge — Conflict Prevention Alert') &&
+              c.user.login === 'github-actions[bot]'
+            );
+            if (alreadyPosted) {
+              console.log('Duplicate suppressed — warning already posted on this PR.');
+              return;
+            }
+
+            if (conflicts.length === 0) {
+              console.log('✅ No potential conflicts detected with any open PR.');
+              return;
+            }
+
+            // --- 5. Post a detailed warning comment ---
+            const conflictSections = conflicts.map(c => [
+              `### ⚠️ Overlaps with [PR #${c.number}](${c.url})`,
+              `**"${c.title}"** · opened by @${c.author}`,
+              '',
+              'Files both PRs are modifying:',
+              c.files.map(f => `- \`${f}\``).join('\n')
+            ].join('\n'));
+
+            const commentBody = [
+              '## 🛡️ Intent Merge — Conflict Prevention Alert',
+              '',
+              `This PR touches **${currentFilenames.size} file(s)** that are also being modified in **${conflicts.length} other open PR(s)**.`,
+              'Merging without coordinating may cause merge conflicts.',
+              '',
+              ...conflictSections,
+              '',
+              '---',
+              '**Recommended:** Coordinate with the authors above, or rebase after those PRs merge.',
+              '',
+              '*Powered by [Intent Merge](https://github.com) · Conflict Prevention System*'
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: prNumber,
+              body: commentBody
+            });
+
+            core.warning(`Intent Merge: Conflict risk detected with ${conflicts.length} PR(s). See PR comment for details.`);
+
+            // --- 6. Report each prevented conflict to Supabase ---
+            const supabaseUrl  = process.env.SUPABASE_URL;
+            const supabaseKey  = process.env.SUPABASE_ANON_KEY;
+            const orgId        = process.env.ORG_ID;
+            const headRef      = context.payload.pull_request.head.ref;
+            const repoFullName = `${owner}/${repo}`;
+
+            if (supabaseUrl && supabaseKey && orgId) {
+              const rows = conflicts.flatMap(c =>
+                c.files.map(file => ({
+                  author:     prAuthor,
+                  commit_hash: context.payload.pull_request.head.sha ?? '',
+                  file,
+                  org_id:     orgId,
+                  event_type: 'prevented',
+                  source:     'github-pr-guard',
+                  pr_number:  prNumber,
+                  repo:       repoFullName,
+                  branch:     headRef,
+                }))
+              );
+
+              const res = await fetch(`${supabaseUrl}/rest/v1/conflicts`, {
+                method: 'POST',
+                headers: {
+                  'apikey':        supabaseKey,
+                  'Authorization': `Bearer ${supabaseKey}`,
+                  'Content-Type':  'application/json',
+                  'Prefer':        'return=minimal',
+                },
+                body: JSON.stringify(rows),
+              });
+
+              if (res.ok) {
+                console.log(`✅ Reported ${rows.length} prevented conflict(s) to Supabase`);
+              } else {
+                const err = await res.text();
+                console.error('Failed to report to Supabase:', err);
+              }
+            } else {
+              console.log('Supabase secrets not configured — skipping DB report.');
+            }
+

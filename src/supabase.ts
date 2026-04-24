@@ -25,7 +25,8 @@ export async function reportConflict(
 	author: string,
 	commitHash: string,
 	file: string,
-	orgId: string
+	orgId: string,
+	branch?: string
 ): Promise<void> {
 	try {
 		const supabase = getSupabaseClient();
@@ -34,6 +35,9 @@ export async function reportConflict(
 			commit_hash: commitHash,
 			file,
 			org_id: orgId,
+			event_type: 'resolved',
+			source:     'vscode',
+			branch:     branch ?? null,
 		});
 		if (error) {
 			console.log('[Intent Merge] Failed to report conflict:', error.message);

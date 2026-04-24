@@ -84,7 +84,7 @@ export function activate(context: vscode.ExtensionContext) {
 				onApplyMerge: async (mergedCode, conflictIndex) => {
 					const ok = await applyMergeToDocument(editor, mergedCode, conflictIndex);
 					if (ok) {
-						vscode.window.showInformationMessage("✅ Merge applied!");
+						vscode.window.showInformationMessage("⚡ Conflict resolved instantly");
 						fireReport(editor);
 					}
 				},
@@ -166,9 +166,10 @@ function fireReport(editor: vscode.TextEditor): void {
 		const relativePath = vscode.workspace.asRelativePath(editor.document.uri);
 		reportConflict(
 			gitInfo.author ?? 'unknown',
-			gitInfo.commitHash ?? 'unknown',
+			gitInfo.commitHash ?? '',
 			relativePath,
-			orgId
+			orgId,
+			gitInfo.currentBranch
 		);
 	}).catch(err => {
 		console.error('[Intent Merge] Error in fireReport during git info retrieval:', err);

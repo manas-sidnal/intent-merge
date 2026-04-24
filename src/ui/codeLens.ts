@@ -21,7 +21,7 @@ export class ConflictCodeLensProvider implements vscode.CodeLensProvider {
 
                 lenses.push(
                     new vscode.CodeLens(range, {
-                        title: 'Resolve with Intent Merge',
+                        title: '⚡ Apply Safe Merge (1-click)',
                         command: 'intent-merge.resolve'
                     })
                 );
