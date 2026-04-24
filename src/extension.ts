@@ -3,7 +3,10 @@ import { showPanel } from './ui/panel';
 import { ConflictCodeLensProvider } from './ui/codeLens';
 import { processFile } from './logic/orchestrator';
 import { reportConflict } from './supabase';
-import { execSync } from 'child_process';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
 
 // Regex that handles both CRLF and LF
 const conflictRegex = () =>
@@ -40,13 +43,9 @@ async function applyMergeToDocument(
 	const start = editor.document.positionAt(match.index);
 
 	// Use minimum-indent detection across ALL non-empty lines of the raw block.
-	// Reading only the first line fails for nested content (e.g. a raise inside an if
-	// inside a function) where the first line has 4 spaces but inner lines have 8.
 	const baseIndent = detectBaseIndent(match[1] ?? '');
 
-	// IMPORTANT: start the replace range from column 0 of the marker line.
-	// Without this, the leading spaces before <<< stay in the document AND we'd
-	// prepend baseIndent again — causing double-indentation (e.g. 8 spaces instead of 4).
+	// Start replace range from col 0 so we own the full line indentation.
 	const rangeStart = new vscode.Position(start.line, 0);
 	const end = editor.document.positionAt(match.index + match[0].length);
 
@@ -86,23 +85,12 @@ export function activate(context: vscode.ExtensionContext) {
 					const ok = await applyMergeToDocument(editor, mergedCode, conflictIndex);
 					if (ok) {
 						vscode.window.showInformationMessage("✅ Merge applied!");
-						const orgId = vscode.workspace.getConfiguration('intentMerge').get<string>('orgId');
-						if (orgId) {
-							const gitInfo = await getGitInfo();
-							const relativePath = vscode.workspace.asRelativePath(editor.document.uri);
-							reportConflict(
-								gitInfo.author ?? 'unknown',
-								gitInfo.commitHash ?? 'unknown',
-								relativePath,
-								orgId
-							);
-						}
+						fireReport(editor);
 					}
 				},
 
 				onUndoMerge: async (_conflictIndex) => {
-					// The webview panel steals focus, so undo would fire in the wrong context.
-					// Explicitly re-focus the source editor before triggering undo.
+					// Webview steals focus — re-focus editor before undo.
 					await vscode.window.showTextDocument(
 						editor.document,
 						{ viewColumn: editor.viewColumn, preserveFocus: false }
@@ -115,25 +103,15 @@ export function activate(context: vscode.ExtensionContext) {
 					const ok = await applyMergeToDocument(editor, mergedCode, conflictIndex);
 					if (!ok) { return; }
 
-					// Report conflict to Supabase
-					const orgId = vscode.workspace.getConfiguration('intentMerge').get<string>('orgId');
-					if (orgId) {
-						const gitInfoForReport = await getGitInfo();
-						const relativePath = vscode.workspace.asRelativePath(editor.document.uri);
-						reportConflict(
-							gitInfoForReport.author ?? 'unknown',
-							gitInfoForReport.commitHash ?? 'unknown',
-							relativePath,
-							orgId
-						);
-					}
+					fireReport(editor);
 
-					// Open the repo's compare page with the current branch pre-selected
+					// Open the compare page — let GitHub redirect to the right base branch
 					const gitInfo = await getGitInfo();
 					if (gitInfo?.remoteUrl) {
 						const base = gitInfo.remoteUrl.replace(/\.git$/, '');
 						const branch = gitInfo.currentBranch ?? 'HEAD';
-						const prUrl = `${base}/compare/main...${branch}`;
+						// Don't hardcode 'main' — GitHub will show the right base via /compare/<branch>
+						const prUrl = `${base}/compare/${branch}`;
 						vscode.env.openExternal(vscode.Uri.parse(prUrl));
 					} else {
 						vscode.window.showInformationMessage(
@@ -174,6 +152,29 @@ export function activate(context: vscode.ExtensionContext) {
 	);
 }
 
+/** Fire-and-forget Supabase report — never blocks the user. */
+function fireReport(editor: vscode.TextEditor): void {
+	const orgId = vscode.workspace.getConfiguration('intentMerge').get<string>('orgId');
+	if (!orgId) {
+		console.log('[Intent Merge] No orgId found in settings, skipping report.');
+		return;
+	}
+
+	console.log(`[Intent Merge] Attempting to report conflict for orgId: ${orgId}`);
+
+	getGitInfo().then(gitInfo => {
+		const relativePath = vscode.workspace.asRelativePath(editor.document.uri);
+		reportConflict(
+			gitInfo.author ?? 'unknown',
+			gitInfo.commitHash ?? 'unknown',
+			relativePath,
+			orgId
+		);
+	}).catch(err => {
+		console.error('[Intent Merge] Error in fireReport during git info retrieval:', err);
+	});
+}
+
 interface GitInfo {
 	remoteUrl: string | undefined;
 	currentBranch: string | undefined;
@@ -187,9 +188,11 @@ async function getGitInfo(): Promise<GitInfo> {
 		const api = gitExtension?.getAPI(1);
 		const repo = api?.repositories?.[0];
 
+		// Async git config read — won't block the UI thread
 		let author: string | undefined;
 		try {
-			author = execSync('git config user.name', { encoding: 'utf-8' }).trim() || undefined;
+			const { stdout } = await execAsync('git config user.name');
+			author = stdout.trim() || undefined;
 		} catch {
 			author = undefined;
 		}

@@ -58,12 +58,13 @@ Respond ONLY in this exact JSON format (no markdown, no extra text):
   try {
     const groq = getGroqClient();
     const response = await groq.chat.completions.create({
-      model: "llama-3.1-8b-instant", // fast + strong
+      model: "llama-3.1-8b-instant",
       messages: [
         { role: "system", content: "You are a senior software engineer." },
         { role: "user", content: prompt }
       ],
       temperature: 0.2,
+      max_tokens: 1024,
     });
 
     const text = response.choices[0]?.message?.content || "";

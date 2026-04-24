@@ -1,10 +1,21 @@
 import { createClient } from '@supabase/supabase-js';
+import * as dotenv from 'dotenv';
+import * as path from 'path';
 
-const SUPABASE_URL = 'https://pgvhqhyzqkrlovvjktre.supabase.co';
-const SUPABASE_ANON_KEY =
-	'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBndmhxaHl6cWtybG92dmprdHJlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcwMDc1MjcsImV4cCI6MjA5MjU4MzUyN30.nt9Jfy8CU55M_lXfzaSeUdr8sDqC3LDntrH5od66OnY';
+// Load .env from the extension root (one level up from dist/)
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+function getSupabaseClient() {
+	const url  = (process.env.SUPABASE_URL  ?? '').trim();
+	const key  = (process.env.SUPABASE_ANON_KEY ?? '').trim();
+
+	if (!url || !key) {
+		console.error('[Intent Merge] SUPABASE_URL or SUPABASE_ANON_KEY missing from .env');
+		throw new Error('Supabase credentials missing');
+	}
+
+	return createClient(url, key);
+}
 
 /**
  * Reports a resolved merge conflict to the Supabase `conflicts` table.
@@ -17,6 +28,7 @@ export async function reportConflict(
 	orgId: string
 ): Promise<void> {
 	try {
+		const supabase = getSupabaseClient();
 		const { error } = await supabase.from('conflicts').insert({
 			author,
 			commit_hash: commitHash,
@@ -25,6 +37,8 @@ export async function reportConflict(
 		});
 		if (error) {
 			console.log('[Intent Merge] Failed to report conflict:', error.message);
+		} else {
+			console.log('[Intent Merge] Conflict reported to Supabase ✅');
 		}
 	} catch (err) {
 		console.log('[Intent Merge] Failed to report conflict:', err);

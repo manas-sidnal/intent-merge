@@ -16,10 +16,6 @@
   "contributes": {
     "commands": [
       {
-        "command": "intent-merge.helloWorld",
-        "title": "Hello World"
-      },
-      {
         "command": "intent-merge.resolve",
         "title": "Resolve Merge Conflict with AI"
       }
