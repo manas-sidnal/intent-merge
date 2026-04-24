@@ -1,6 +1,7 @@
 export type ConflictBlock = {
   current: string
   incoming: string
+  baseIndent: string        // common indentation stripped from both sides
   contextBefore?: string
   contextAfter?: string
 }
