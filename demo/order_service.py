@@ -7,4 +7,4 @@ def process_payment(amount, user_id):
     return {"status": "success", "amount": amount}
 
 def calculate_tax(amount):
-    return amount * 0.08
+    return amount * 0.15
