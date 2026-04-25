@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { showPanel } from './ui/panel';
 import { ConflictCodeLensProvider } from './ui/codeLens';
 import { processFile } from './logic/orchestrator';
-import { reportConflict } from './supabase';
+import { reportConflict, deleteConflict } from './supabase';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
@@ -79,17 +79,28 @@ export function activate(context: vscode.ExtensionContext) {
 				return;
 			}
 
+			// Tracks DB row IDs per conflict index so Undo can delete them
+			const reportedRowIds = new Map<number, string>();
+
 			const panel = showPanel(context, {
 
 				onApplyMerge: async (mergedCode, conflictIndex) => {
 					const ok = await applyMergeToDocument(editor, mergedCode, conflictIndex);
 					if (ok) {
 						vscode.window.showInformationMessage("⚡ Conflict resolved instantly");
-						fireReport(editor);
+						fireReport(editor).then(rowId => {
+							if (rowId) { reportedRowIds.set(conflictIndex, rowId); }
+						});
 					}
 				},
 
-				onUndoMerge: async (_conflictIndex) => {
+				onUndoMerge: async (conflictIndex) => {
+					// Remove from DB if we have a tracked ID
+					const rowId = reportedRowIds.get(conflictIndex);
+					if (rowId) {
+						deleteConflict(rowId);
+						reportedRowIds.delete(conflictIndex);
+					}
 					// Webview steals focus — re-focus editor before undo.
 					await vscode.window.showTextDocument(
 						editor.document,
@@ -152,19 +163,19 @@ export function activate(context: vscode.ExtensionContext) {
 	);
 }
 
-/** Fire-and-forget Supabase report — never blocks the user. */
-function fireReport(editor: vscode.TextEditor): void {
+/** Fire-and-forget Supabase report — never blocks the user. Returns row ID if successful. */
+function fireReport(editor: vscode.TextEditor): Promise<string | null> {
 	const orgId = vscode.workspace.getConfiguration('intentMerge').get<string>('orgId');
 	if (!orgId) {
 		console.log('[Intent Merge] No orgId found in settings, skipping report.');
-		return;
+		return Promise.resolve(null);
 	}
 
 	console.log(`[Intent Merge] Attempting to report conflict for orgId: ${orgId}`);
 
-	getGitInfo().then(gitInfo => {
+	return getGitInfo().then(gitInfo => {
 		const relativePath = vscode.workspace.asRelativePath(editor.document.uri);
-		reportConflict(
+		return reportConflict(
 			gitInfo.author ?? 'unknown',
 			gitInfo.commitHash ?? '',
 			relativePath,
@@ -173,6 +184,7 @@ function fireReport(editor: vscode.TextEditor): void {
 		);
 	}).catch(err => {
 		console.error('[Intent Merge] Error in fireReport during git info retrieval:', err);
+		return null;
 	});
 }
 

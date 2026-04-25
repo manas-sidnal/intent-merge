@@ -27,10 +27,10 @@ export async function reportConflict(
 	file: string,
 	orgId: string,
 	branch?: string
-): Promise<void> {
+): Promise<string | null> {
 	try {
 		const supabase = getSupabaseClient();
-		const { error } = await supabase.from('conflicts').insert({
+		const { data, error } = await supabase.from('conflicts').insert({
 			author,
 			commit_hash: commitHash,
 			file,
@@ -38,13 +38,33 @@ export async function reportConflict(
 			event_type: 'resolved',
 			source:     'vscode',
 			branch:     branch ?? null,
-		});
+		}).select('id').single();
 		if (error) {
 			console.log('[Intent Merge] Failed to report conflict:', error.message);
-		} else {
-			console.log('[Intent Merge] Conflict reported to Supabase ✅');
+			return null;
 		}
+		console.log('[Intent Merge] Conflict reported to Supabase ✅ id:', data.id);
+		return data.id as string;
 	} catch (err) {
 		console.log('[Intent Merge] Failed to report conflict:', err);
+		return null;
+	}
+}
+
+/**
+ * Deletes a previously reported conflict row by its UUID.
+ * Called when the user clicks Undo in the panel.
+ */
+export async function deleteConflict(id: string): Promise<void> {
+	try {
+		const supabase = getSupabaseClient();
+		const { error } = await supabase.from('conflicts').delete().eq('id', id);
+		if (error) {
+			console.log('[Intent Merge] Failed to delete conflict row:', error.message);
+		} else {
+			console.log('[Intent Merge] Conflict row deleted from Supabase ✅');
+		}
+	} catch (err) {
+		console.log('[Intent Merge] Failed to delete conflict row:', err);
 	}
 }
