@@ -1,17 +1,9 @@
-"""
-Order Service - Core business logic
-"""
-
 def validate_user(user_id):
-    # Auth team: stricter validation
-    if not user_id or len(str(user_id)) < 3:
-        raise ValueError("Invalid user ID")
-    print(f"Validating {user_id} with JWT check")
+    print(f"Validating {user_id}")
     return True
 
-
 def process_payment(amount, user_id):
-    print(f"Processing payment of {amount} for user {user_id}")
+    print(f"Processing {amount} for {user_id}")
     return {"status": "success", "amount": amount}
 
 def calculate_tax(amount):
